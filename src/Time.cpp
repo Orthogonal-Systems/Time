@@ -29,12 +29,13 @@
   2.0  4  Mar 2016 - switch to 64b time
 */
 
-#if ARDUINO >= 100
+//#if ARDUINO >= 100 // this >= is causing an error TODO: fix
 #include <Arduino.h> 
-#else
-#include <WProgram.h> 
-#endif
+//#else
+//#include <WProgram.h> 
+//#endif
 
+#include <limits.h>
 #include "Time.h"
 
 static tmElements_t tm;          // a cache of time elements
@@ -103,6 +104,15 @@ uint8_t second() {
 uint8_t second(time_t t) {  // the second for the given time
   refreshCache(t);
   return tm.Second;
+}
+
+uint8_t msec(){          // the second now 
+  return msec(now());
+}
+
+uint8_t msec(time_t t){  // the second for the given time
+  refreshCache(t);
+  return tm.mSec;
 }
 
 uint8_t day(){
@@ -235,7 +245,7 @@ time_t makeTime(tmElements_t &tm){
   seconds+= tm.Second;
 
   uint32_t fracSecs = (((uint32_t)tm.mSec)*UINT_MAX/1000)<<16;
-  return (time_t)((seconds<<32) + fracSecs); 
+  return (time_t)(((uint64_t)seconds<<32) + fracSecs); 
 }
 /*=====================================================*/	
 /* Low level system time functions  */
@@ -254,12 +264,11 @@ time_t sysUnsyncedTime = 0; // the time sysTime unadjusted by sync
 
 
 time_t now() {
-  uint32_t elapsedSecs = 0;
-  uint32_t dt_ms = millis() - prevMillis();
+  uint32_t dt_ms = millis() - prevMillis;
 #ifdef TIME_DRIFT_INFO
   uint32_t sysUnsyncedSec = 0; // this can be compared to the synced time to measure long term drift     
 #endif
-
+  uint32_t sysSec = 0;
 	// calculate number of seconds passed since last call to now()
   while ( dt_ms >= 1000) {
 		// millis() and prevMillis are both unsigned ints thus the subtraction will always be the absolute value of the difference
@@ -271,11 +280,13 @@ time_t now() {
     dt_ms = millis() - prevMillis;
   }
 
-  uint32_t fracSecs = ((dt_ms*UINT_MAX)/1000)<<16;
+  prevMillis += dt_ms;
+  uint32_t fracSecs = (uint32_t)((((uint64_t)dt_ms)*ULONG_MAX)/1000);
+  //uint32_t fracSecs = 0;
 #ifdef TIME_DRIFT_INFO
-  sysUnsyncedTime += (time_t)((sysUnsyncedSec<<32) + fracSecs);
+  sysUnsyncedTime += (time_t)(((time_t)sysUnsyncedSec<<32) + fracSecs);
 #endif
-  sysTime += (time_t)((sysSec<<32) + fracSecs);
+  sysTime += (time_t)(((time_t)sysSec<<32) + fracSecs);
 
   // if its time to update do it
   sysSec = toSecs(sysTime);
@@ -300,7 +311,7 @@ void setTime(time_t t) {
 #endif
 
   sysTime = (time_t)t;  
-  nextSyncTime = toSec(sysTime) + syncInterval;
+  nextSyncTime = toSecs(sysTime) + syncInterval;
   Status = timeSet;
   prevMillis = millis();  // restart counting from now (thanks to Korman for this fix)
 } 

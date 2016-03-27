@@ -118,6 +118,8 @@ uint8_t minute();          // the minute now
 uint8_t minute(time_t t);  // the minute for the given time
 uint8_t second();          // the second now 
 uint8_t second(time_t t);  // the second for the given time
+uint8_t msec();          // the second now 
+uint8_t msec(time_t t);  // the second for the given time
 uint8_t day();             // the day now 
 uint8_t day(time_t t);     // the day for the given time
 uint8_t weekday();         // the weekday now (Sunday is day 1) 
@@ -125,7 +127,7 @@ uint8_t weekday(time_t t); // the weekday for the given time
 uint8_t month();           // the month now  (Jan is month 1)
 uint8_t month(time_t t);   // the month for the given time
 uint16_t year();            // the full four digit year: (2009, 2010 etc) 
-uint8_t year(time_t t);    // the year for the given time
+uint16_t year(time_t t);    // the year for the given time
 
 time_t now();              // return the current time as 64b timestamp since Jan 1 1970 
 uint32_t nowSec();              // return the current time as 64b timestamp since Jan 1 1970 

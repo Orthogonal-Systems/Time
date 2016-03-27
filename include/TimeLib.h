@@ -1,5 +1,7 @@
 /*
   time.h - low level time and date functions
+  Switch to fixed precision 64 bit time ( 32 bit second, 32 bit factional second)
+    - by Matthew Ebert
 */
 
 /*
@@ -18,7 +20,8 @@
 
 
 #if !defined(__time_t_defined) // avoid conflict with newlib or other posix libc
-typedef unsigned long time_t;
+typedef uint64_t time_t;
+typedef uint32_t shorttime_t;
 #endif
 
 
@@ -39,10 +42,11 @@ typedef enum {
 } timeDayOfWeek_t;
 
 typedef enum {
-    tmSecond, tmMinute, tmHour, tmWday, tmDay,tmMonth, tmYear, tmNbrFields
+    tmmSec, tmSecond, tmMinute, tmHour, tmWday, tmDay,tmMonth, tmYear, tmNbrFields
 } tmByteFields;	   
 
 typedef struct  { 
+  uint16_t mSec; 
   uint8_t Second; 
   uint8_t Minute; 
   uint8_t Hour; 
@@ -64,6 +68,7 @@ typedef time_t(*getExternalTime)();
 
 /*==============================================================================*/
 /* Useful Constants */
+#define MSECS_PER_SEC (1000UL)
 #define SECS_PER_MIN  (60UL)
 #define SECS_PER_HOUR (3600UL)
 #define SECS_PER_DAY  (SECS_PER_HOUR * 24UL)
@@ -72,55 +77,61 @@ typedef time_t(*getExternalTime)();
 #define SECS_PER_YEAR (SECS_PER_WEEK * 52UL)
 #define SECS_YR_2000  (946684800UL) // the time at the start of y2k
  
+// macro for conversion from full timestamp to seconds/frac seconds only 32b
+#define toSecs(_time_) ((uint32_t)(_time_ >> 32))
+#define toFracSecs(_time_) ((uint32_t)(_time_))
+#define toMSecs(_time_) (uint16_t)((toFracSecs(_time_)>>16)*1000/UINT_MAX)
+
 /* Useful Macros for getting elapsed time */
-#define numberOfSeconds(_time_) (_time_ % SECS_PER_MIN)  
-#define numberOfMinutes(_time_) ((_time_ / SECS_PER_MIN) % SECS_PER_MIN) 
-#define numberOfHours(_time_) (( _time_% SECS_PER_DAY) / SECS_PER_HOUR)
-#define dayOfWeek(_time_)  ((( _time_ / SECS_PER_DAY + 4)  % DAYS_PER_WEEK)+1) // 1 = Sunday
-#define elapsedDays(_time_) ( _time_ / SECS_PER_DAY)  // this is number of days since Jan 1 1970
-#define elapsedSecsToday(_time_)  (_time_ % SECS_PER_DAY)   // the number of seconds since last midnight 
+#define numberOfSeconds(_time_) (toSecs(_time_) % SECS_PER_MIN)  
+#define numberOfMinutes(_time_) ((toSecs(_time_) / SECS_PER_MIN) % SECS_PER_MIN) 
+#define numberOfHours(_time_) (( toSecs(_time_)% SECS_PER_DAY) / SECS_PER_HOUR)
+#define dayOfWeek(_time_)  ((( toSecs(_time_) / SECS_PER_DAY + 4)  % DAYS_PER_WEEK)+1) // 1 = Sunday
+#define elapsedDays(_time_) ( toSecs(_time_) / SECS_PER_DAY)  // this is number of days since Jan 1 1970
+#define elapsedSecsToday(_time_)  ( toSecs(_time_) % SECS_PER_DAY)   // the number of seconds since last midnight 
 // The following macros are used in calculating alarms and assume the clock is set to a date later than Jan 1 1971
 // Always set the correct time before settting alarms
-#define previousMidnight(_time_) (( _time_ / SECS_PER_DAY) * SECS_PER_DAY)  // time at the start of the given day
-#define nextMidnight(_time_) ( previousMidnight(_time_)  + SECS_PER_DAY )   // time at the end of the given day 
-#define elapsedSecsThisWeek(_time_)  (elapsedSecsToday(_time_) +  ((dayOfWeek(_time_)-1) * SECS_PER_DAY) )   // note that week starts on day 1
-#define previousSunday(_time_)  (_time_ - elapsedSecsThisWeek(_time_))      // time at the start of the week for the given time
-#define nextSunday(_time_) ( previousSunday(_time_)+SECS_PER_WEEK)          // time at the end of the week for the given time
+#define previousMidnight(_time_) (( toSecs(_time_) / SECS_PER_DAY) * SECS_PER_DAY)  // time at the start of the given day
+#define nextMidnight(_time_) ( previousMidnight(toSecs(_time_))  + SECS_PER_DAY )   // time at the end of the given day 
+#define elapsedSecsThisWeek(_time_)  (elapsedSecsToday(toSecs(_time_)) +  ((dayOfWeek(_time_)-1) * SECS_PER_DAY) )   // note that week starts on day 1
+#define previousSunday(_time_)  (_time_ - elapsedSecsThisWeek(toSecs(_time_)))      // time at the start of the week for the given time
+#define nextSunday(_time_) ( previousSunday(toSecs(_time_))+SECS_PER_WEEK)          // time at the end of the week for the given time
 
 
 /* Useful Macros for converting elapsed time to a time_t */
-#define minutesToTime_t ((M)) ( (M) * SECS_PER_MIN)  
-#define hoursToTime_t   ((H)) ( (H) * SECS_PER_HOUR)  
-#define daysToTime_t    ((D)) ( (D) * SECS_PER_DAY) // fixed on Jul 22 2011
-#define weeksToTime_t   ((W)) ( (W) * SECS_PER_WEEK)   
+#define minutesToTime_t ((M)) ( ((uint64_t)(M) * SECS_PER_MIN)<<32)  
+#define hoursToTime_t   ((H)) ( ((uint64_t)(H) * SECS_PER_HOUR)<<32)
+#define daysToTime_t    ((D)) ( ((uint64_t)(D) * SECS_PER_DAY)<<32) // fixed on Jul 22 2011
+#define weeksToTime_t   ((W)) ( ((uint64_t)(W) * SECS_PER_WEEK)<<32)
 
 /*============================================================================*/
 /*  time and date functions   */
-int     hour();            // the hour now 
-int     hour(time_t t);    // the hour for the given time
-int     hourFormat12();    // the hour now in 12 hour format
-int     hourFormat12(time_t t); // the hour for the given time in 12 hour format
+uint8_t hour();            // the hour now 
+uint8_t hour(time_t t);    // the hour for the given time
+uint8_t hourFormat12();    // the hour now in 12 hour format
+uint8_t hourFormat12(time_t t); // the hour for the given time in 12 hour format
 uint8_t isAM();            // returns true if time now is AM
 uint8_t isAM(time_t t);    // returns true the given time is AM
 uint8_t isPM();            // returns true if time now is PM
 uint8_t isPM(time_t t);    // returns true the given time is PM
-int     minute();          // the minute now 
-int     minute(time_t t);  // the minute for the given time
-int     second();          // the second now 
-int     second(time_t t);  // the second for the given time
-int     day();             // the day now 
-int     day(time_t t);     // the day for the given time
-int     weekday();         // the weekday now (Sunday is day 1) 
-int     weekday(time_t t); // the weekday for the given time 
-int     month();           // the month now  (Jan is month 1)
-int     month(time_t t);   // the month for the given time
-int     year();            // the full four digit year: (2009, 2010 etc) 
-int     year(time_t t);    // the year for the given time
+uint8_t minute();          // the minute now 
+uint8_t minute(time_t t);  // the minute for the given time
+uint8_t second();          // the second now 
+uint8_t second(time_t t);  // the second for the given time
+uint8_t day();             // the day now 
+uint8_t day(time_t t);     // the day for the given time
+uint8_t weekday();         // the weekday now (Sunday is day 1) 
+uint8_t weekday(time_t t); // the weekday for the given time 
+uint8_t month();           // the month now  (Jan is month 1)
+uint8_t month(time_t t);   // the month for the given time
+uint16_t year();            // the full four digit year: (2009, 2010 etc) 
+uint8_t year(time_t t);    // the year for the given time
 
-time_t now();              // return the current time as seconds since Jan 1 1970 
-void    setTime(time_t t);
-void    setTime(int hr,int min,int sec,int day, int month, int yr);
-void    adjustTime(long adjustment);
+time_t now();              // return the current time as 64b timestamp since Jan 1 1970 
+uint32_t nowSec();              // return the current time as 64b timestamp since Jan 1 1970 
+void   setTime(time_t t);
+void   setTime(uint8_t hr,uint8_t min,uint8_t sec,uint8_t day, uint8_t month, uint16_t yr);
+void   adjustTime(uint64_t adjustment);
 
 /* date strings */ 
 #define dt_MAX_STRING_LEN 9 // length of longest date string (excluding terminating null)

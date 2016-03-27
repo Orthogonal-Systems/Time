@@ -25,6 +25,8 @@
                      examples, add error checking and messages to RTC examples,
                      add examples to DS1307RTC library.
   1.4  5  Sep 2014 - compatibility with Arduino 1.5.7
+
+  2.0  4  Mar 2016 - switch to 64b time
 */
 
 #if ARDUINO >= 100
@@ -46,20 +48,20 @@ void refreshCache(time_t t) {
   }
 }
 
-int hour() { // the hour now 
+uint8_t hour() { // the hour now 
   return hour(now()); 
 }
 
-int hour(time_t t) { // the hour for the given time
+uint8_t hour(time_t t) { // the hour for the given time
   refreshCache(t);
   return tm.Hour;  
 }
 
-int hourFormat12() { // the hour now in 12 hour format
+uint8_t hourFormat12() { // the hour now in 12 hour format
   return hourFormat12(now()); 
 }
 
-int hourFormat12(time_t t) { // the hour for the given time in 12 hour format
+uint8_t hourFormat12(time_t t) { // the hour for the given time in 12 hour format
   refreshCache(t);
   if( tm.Hour == 0 )
     return 12; // 12 midnight
@@ -85,56 +87,56 @@ uint8_t isPM(time_t t) { // returns true if PM
   return (hour(t) >= 12); 
 }
 
-int minute() {
+uint8_t minute() {
   return minute(now()); 
 }
 
-int minute(time_t t) { // the minute for the given time
+uint8_t minute(time_t t) { // the minute for the given time
   refreshCache(t);
   return tm.Minute;  
 }
 
-int second() {
+uint8_t second() {
   return second(now()); 
 }
 
-int second(time_t t) {  // the second for the given time
+uint8_t second(time_t t) {  // the second for the given time
   refreshCache(t);
   return tm.Second;
 }
 
-int day(){
+uint8_t day(){
   return(day(now())); 
 }
 
-int day(time_t t) { // the day for the given time (0-6)
+uint8_t day(time_t t) { // the day for the given time (0-6)
   refreshCache(t);
   return tm.Day;
 }
 
-int weekday() {   // Sunday is day 1
+uint8_t weekday() {   // Sunday is day 1
   return  weekday(now()); 
 }
 
-int weekday(time_t t) {
+uint8_t weekday(time_t t) {
   refreshCache(t);
   return tm.Wday;
 }
    
-int month(){
+uint8_t month(){
   return month(now()); 
 }
 
-int month(time_t t) {  // the month for the given time
+uint8_t month(time_t t) {  // the month for the given time
   refreshCache(t);
   return tm.Month;
 }
 
-int year() {  // as in Processing, the full four digit year: (2009, 2010 etc) 
+uint16_t year() {  // as in Processing, the full four digit year: (2009, 2010 etc) 
   return year(now()); 
 }
 
-int year(time_t t) { // the year for the given time
+uint16_t year(time_t t) { // the year for the given time
   refreshCache(t);
   return tmYearToCalendar(tm.Year);
 }
@@ -158,7 +160,8 @@ void breakTime(time_t timeInput, tmElements_t &tm){
   uint32_t time;
   unsigned long days;
 
-  time = (uint32_t)timeInput;
+  tm.mSec = toMSecs(timeInput); 
+  time = toSecs(timeInput);
   tm.Second = time % 60;
   time /= 60; // now it is minutes
   tm.Minute = time % 60;
@@ -209,8 +212,9 @@ time_t makeTime(tmElements_t &tm){
   int i;
   uint32_t seconds;
 
+  // TODO switch to (year/4)*(4*SECS_PER_YEAR+SEC_PER_DAY) and only check leap year for last 4 years
   // seconds from 1970 till 1 jan 00:00:00 of the given year
-  seconds= tm.Year*(SECS_PER_DAY * 365);
+  seconds= tm.Year*(SECS_PER_YEAR); 
   for (i = 0; i < tm.Year; i++) {
     if (LEAP_YEAR(i)) {
       seconds +=  SECS_PER_DAY;   // add extra days for leap years
@@ -229,14 +233,16 @@ time_t makeTime(tmElements_t &tm){
   seconds+= tm.Hour * SECS_PER_HOUR;
   seconds+= tm.Minute * SECS_PER_MIN;
   seconds+= tm.Second;
-  return (time_t)seconds; 
+
+  uint32_t fracSecs = (((uint32_t)tm.mSec)*UINT_MAX/1000)<<16;
+  return (time_t)((seconds<<32) + fracSecs); 
 }
 /*=====================================================*/	
 /* Low level system time functions  */
 
-static uint32_t sysTime = 0;
+static time_t sysTime = 0;    // 32b sec, 32b frac sec
 static uint32_t prevMillis = 0;
-static uint32_t nextSyncTime = 0;
+static uint32_t nextSyncTime = 0; // in straight seconds
 static timeStatus_t Status = timeNotSet;
 
 getExternalTime getTimePtr;  // pointer to external sync function
@@ -248,22 +254,38 @@ time_t sysUnsyncedTime = 0; // the time sysTime unadjusted by sync
 
 
 time_t now() {
+  uint32_t elapsedSecs = 0;
+  uint32_t dt_ms = millis() - prevMillis();
+#ifdef TIME_DRIFT_INFO
+  uint32_t sysUnsyncedSec = 0; // this can be compared to the synced time to measure long term drift     
+#endif
+
 	// calculate number of seconds passed since last call to now()
-  while (millis() - prevMillis >= 1000) {
+  while ( dt_ms >= 1000) {
 		// millis() and prevMillis are both unsigned ints thus the subtraction will always be the absolute value of the difference
-    sysTime++;
+    sysSec++;
     prevMillis += 1000;	
 #ifdef TIME_DRIFT_INFO
-    sysUnsyncedTime++; // this can be compared to the synced time to measure long term drift     
+    sysUnsyncedSec++; // this can be compared to the synced time to measure long term drift     
 #endif
+    dt_ms = millis() - prevMillis;
   }
-  if (nextSyncTime <= sysTime) {
+
+  uint32_t fracSecs = ((dt_ms*UINT_MAX)/1000)<<16;
+#ifdef TIME_DRIFT_INFO
+  sysUnsyncedTime += (time_t)((sysUnsyncedSec<<32) + fracSecs);
+#endif
+  sysTime += (time_t)((sysSec<<32) + fracSecs);
+
+  // if its time to update do it
+  sysSec = toSecs(sysTime);
+  if (nextSyncTime <= sysSec) {
     if (getTimePtr != 0) {
       time_t t = getTimePtr();
       if (t != 0) {
         setTime(t);
       } else {
-        nextSyncTime = sysTime + syncInterval;
+        nextSyncTime = sysSec + syncInterval;
         Status = (Status == timeNotSet) ?  timeNotSet : timeNeedsSync;
       }
     }
@@ -277,13 +299,13 @@ void setTime(time_t t) {
    sysUnsyncedTime = t;   // store the time of the first call to set a valid Time   
 #endif
 
-  sysTime = (uint32_t)t;  
-  nextSyncTime = (uint32_t)t + syncInterval;
+  sysTime = (time_t)t;  
+  nextSyncTime = toSec(sysTime) + syncInterval;
   Status = timeSet;
   prevMillis = millis();  // restart counting from now (thanks to Korman for this fix)
 } 
 
-void setTime(int hr,int min,int sec,int dy, int mnth, int yr){
+void setTime(uint8_t hr,uint8_t min,uint8_t sec, uint16_t msec, uint8_t dy, uint8_t mnth, uint16_t yr){
  // year can be given as full four digit year or two digts (2010 or 10 for 2010);  
  //it is converted to years since 1970
   if( yr > 99)
@@ -296,10 +318,11 @@ void setTime(int hr,int min,int sec,int dy, int mnth, int yr){
   tm.Hour = hr;
   tm.Minute = min;
   tm.Second = sec;
+  tm.mSec = msec;
   setTime(makeTime(tm));
 }
 
-void adjustTime(long adjustment) {
+void adjustTime(uint64_t adjustment) {
   sysTime += adjustment;
 }
 
@@ -317,5 +340,5 @@ void setSyncProvider( getExternalTime getTimeFunction){
 
 void setSyncInterval(time_t interval){ // set the number of seconds between re-sync
   syncInterval = (uint32_t)interval;
-  nextSyncTime = sysTime + syncInterval;
+  nextSyncTime = toSecs(sysTime) + syncInterval;
 }

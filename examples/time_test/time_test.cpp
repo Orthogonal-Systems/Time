@@ -70,7 +70,13 @@ void loop()
   if (timeStatus() != timeNotSet) {
     if ((now()>>32) != (prevDisplay>>32)) { //update the display only if seconds has changed
       prevDisplay = now();
-      digitalClockDisplay(prevDisplay);  
+      //digitalClockDisplay(prevDisplay);  
+      time_t temp = prevDisplay;
+      for(uint8_t i=0; i<16; i++){
+        Serial.print((uint8_t)(temp>>60),HEX);
+        temp = temp << 4;
+      }
+      Serial.println();
     }
   }
 }

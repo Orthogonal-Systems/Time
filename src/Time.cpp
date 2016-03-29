@@ -42,6 +42,11 @@ static tmElements_t tm;          // a cache of time elements
 static time_t cacheTime;   // the time the cache was updated
 static uint32_t syncInterval = 300;  // time sync will be attempted after this many seconds
 
+// drift correction per system clock second
+const uint8_t DRIFT_SMOOTHING_FACTOR = 180; // 180/256 = 0.7, finite response filter
+int32_t driftCorrection = 0;  // fract seconds per second of system time
+uint32_t lastSyncSec = 0;
+
 void refreshCache(time_t t) {
   if (t != cacheTime) {
     breakTime(t, tm); 
@@ -262,8 +267,11 @@ getExternalTime getTimePtr;  // pointer to external sync function
 time_t sysUnsyncedTime = 0; // the time sysTime unadjusted by sync  
 #endif
 
-
 time_t now() {
+  return now(1);
+}
+
+time_t now( uint8_t allowSync ) {
   uint32_t dt_ms = millis() - prevMillis;
 #ifdef TIME_DRIFT_INFO
   uint32_t sysUnsyncedSec = 0; // this can be compared to the synced time to measure long term drift     
@@ -274,34 +282,48 @@ time_t now() {
 		// millis() and prevMillis are both unsigned ints thus the subtraction will always be the absolute value of the difference
     sysSec++;
     prevMillis += 1000;	
+    adjustTime(driftCorrection);
 #ifdef TIME_DRIFT_INFO
     sysUnsyncedSec++; // this can be compared to the synced time to measure long term drift     
 #endif
     dt_ms = millis() - prevMillis;
   }
 
-  prevMillis += dt_ms;
+  //prevMillis += dt_ms;// report fraction seconds but dont increment with them
   uint32_t fracSecs = (uint32_t)((((uint64_t)dt_ms)*ULONG_MAX)/1000);
-  //uint32_t fracSecs = 0;
 #ifdef TIME_DRIFT_INFO
-  sysUnsyncedTime += (time_t)(((time_t)sysUnsyncedSec<<32) + fracSecs);
+  //sysUnsyncedTime += (time_t)(((time_t)sysUnsyncedSec<<32) + fracSecs);
+  sysUnsyncedTime += (time_t)(((time_t)sysUnsyncedSec<<32));
 #endif
-  sysTime += (time_t)(((time_t)sysSec<<32) + fracSecs);
+  //sysTime += (time_t)(((time_t)sysSec<<32) + fracSecs);
+  // report fraction seconds but dont increment with them
+  sysTime += (time_t)(((time_t)sysSec<<32));
 
-  // if its time to update do it
+  // if its time to update do it, if we are allowed
   sysSec = toSecs(sysTime);
-  if (nextSyncTime <= sysSec) {
+  if ( (nextSyncTime <= sysSec) && allowSync ){
     if (getTimePtr != 0) {
       time_t t = getTimePtr();
       if (t != 0) {
+        time_t unsyncedSysTime = now(0);  // save current time for comparison to network time
         setTime(t);
+        uint32_t t_sec = toSecs(t);
+        if( lastSyncSec > 0 ){
+          int64_t time_error = t - unsyncedSysTime;
+          int32_t time_drift = (int32_t)(time_error/(t_sec - lastSyncSec)); // per second
+          // drift correction has a finite response filter
+          driftCorrection = (int32_t)((DRIFT_SMOOTHING_FACTOR*(int64_t)driftCorrection)/UCHAR_MAX);
+          driftCorrection += (int32_t)(((UCHAR_MAX - DRIFT_SMOOTHING_FACTOR)*(int64_t)time_drift)/UCHAR_MAX);
+        }
+        lastSyncSec = t_sec;
       } else {
         nextSyncTime = sysSec + syncInterval;
         Status = (Status == timeNotSet) ?  timeNotSet : timeNeedsSync;
       }
     }
   }  
-  return (time_t)sysTime;
+  // report fraction seconds but dont increment with them
+  return (time_t)sysTime + fracSecs;
 }
 
 void setTime(time_t t) { 
@@ -310,10 +332,10 @@ void setTime(time_t t) {
    sysUnsyncedTime = t;   // store the time of the first call to set a valid Time   
 #endif
 
+  prevMillis = millis();  // restart counting from now (thanks to Korman for this fix)
   sysTime = (time_t)t;  
   nextSyncTime = toSecs(sysTime) + syncInterval;
   Status = timeSet;
-  prevMillis = millis();  // restart counting from now (thanks to Korman for this fix)
 } 
 
 void setTime(uint8_t hr,uint8_t min,uint8_t sec, uint16_t msec, uint8_t dy, uint8_t mnth, uint16_t yr){
@@ -333,7 +355,7 @@ void setTime(uint8_t hr,uint8_t min,uint8_t sec, uint16_t msec, uint8_t dy, uint
   setTime(makeTime(tm));
 }
 
-void adjustTime(uint64_t adjustment) {
+void adjustTime(time_t adjustment) {
   sysTime += adjustment;
 }
 
@@ -349,7 +371,11 @@ void setSyncProvider( getExternalTime getTimeFunction){
   now(); // this will sync the clock
 }
 
-void setSyncInterval(time_t interval){ // set the number of seconds between re-sync
+void setSyncInterval(uint32_t interval){ // set the number of seconds between re-sync
   syncInterval = (uint32_t)interval;
   nextSyncTime = toSecs(sysTime) + syncInterval;
+}
+
+int32_t getDriftCorrection(){
+  return driftCorrection;
 }

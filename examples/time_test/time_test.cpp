@@ -67,7 +67,7 @@ void setup()
 }
 
 uint32_t lastUpdate = 0;
-int8_t i = 0;
+int32_t lastCorr = 0;
 
 void loop()
 {  
@@ -82,21 +82,12 @@ void loop()
       }
       Serial.println();
 
-      if( i > 60 ){ 
-        int32_t corr = getDriftCorrection();
-        if( corr < 0 ){
-          Serial.print("-");
-          corr *= -1;
-        }
+      int32_t corr = getDriftCorrection();
+      if( lastCorr != corr ){ 
         Serial.print("uC drift correction: ");
-        for(uint8_t i=0; i<8; i++){
-          Serial.print((uint8_t)(corr>>60),HEX);
-          corr = corr << 4;
-        }
-        Serial.println();
-        i = 0;
+        Serial.println(corr);
+        lastCorr = corr;
       }
-      i++;
     }
   }
 }

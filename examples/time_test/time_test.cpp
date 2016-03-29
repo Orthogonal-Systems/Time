@@ -14,6 +14,7 @@ IPAddress ip    (169,254,5,11);
 // NTP Servers:
 IPAddress timeServer(169, 254,   5, 183); // LAN NTP Server
 
+int64_t diff = 0;
 
 const int timeZone = 0;     // unix time
 //const int timeZone = -5;  // Eastern Standard Time (USA)
@@ -60,17 +61,33 @@ void setup()
 
   Udp.begin(localPort);
   Serial.println("waiting for sync");
+  setSyncInterval(600);// speed up ntp synce for testing
   setSyncProvider(getNtpTime);
+
 }
 
-time_t prevDisplay = 0; // when the digital clock was displayed
+uint32_t lastUpdate = 0;
+int32_t lastCorr = 0;
 
 void loop()
 {  
   if (timeStatus() != timeNotSet) {
-    if ((now()>>32) != (prevDisplay>>32)) { //update the display only if seconds has changed
-      prevDisplay = now();
-      digitalClockDisplay(prevDisplay);  
+    if (millis()-lastUpdate > 10000){ //update the display only if seconds has changed
+      lastUpdate = millis();
+      time_t timestamp = now();
+      //digitalClockDisplay(prevDisplay);  
+      for(uint8_t i=0; i<16; i++){
+        Serial.print((uint8_t)(timestamp>>60),HEX);
+        timestamp = timestamp << 4;
+      }
+      Serial.println();
+
+      int32_t corr = getDriftCorrection();
+      if( lastCorr != corr ){ 
+        Serial.print("uC drift correction: ");
+        Serial.println(corr);
+        lastCorr = corr;
+      }
     }
   }
 }
@@ -109,23 +126,24 @@ time_t getNtpTime()
   Serial.println("Transmit NTP Request");
   sendNTPpacket(timeServer);
   uint32_t beginWait = millis();
-  while (millis() - beginWait < 1500) {
+  while (millis() - beginWait < 500) {
     int size = Udp.parsePacket();
     if (size >= NTP_PACKET_SIZE) {
       Serial.println("Receive NTP Response");
       Udp.read(packetBuffer, NTP_PACKET_SIZE);  // read packet into the buffer
-      unsigned long secsSince1900;
+      unsigned long secsSince1970;
       unsigned long fracSecs;
       // convert four bytes starting at location 40 to a long integer
-      secsSince1900 =  (unsigned long)packetBuffer[40] << 24;
-      secsSince1900 |= (unsigned long)packetBuffer[41] << 16;
-      secsSince1900 |= (unsigned long)packetBuffer[42] << 8;
-      secsSince1900 |= (unsigned long)packetBuffer[43];
+      secsSince1970 =  (unsigned long)packetBuffer[40] << 24;
+      secsSince1970 |= (unsigned long)packetBuffer[41] << 16;
+      secsSince1970 |= (unsigned long)packetBuffer[42] << 8;
+      secsSince1970 |= (unsigned long)packetBuffer[43];
       fracSecs =  (unsigned long)packetBuffer[44] << 24;
       fracSecs |= (unsigned long)packetBuffer[45] << 16;
       fracSecs |= (unsigned long)packetBuffer[46] << 8;
       fracSecs |= (unsigned long)packetBuffer[47];
-      return ((time_t)(secsSince1900 - 2208988800UL + timeZone * SECS_PER_HOUR)<<32) + fracSecs;
+      time_t serverTime = ((time_t)(secsSince1970 - 2208988800UL)<<32) + fracSecs;
+      return serverTime;
     }
   }
   Serial.println("No NTP Response :-(");
@@ -153,4 +171,17 @@ void sendNTPpacket(IPAddress &address)
   Udp.beginPacket(address, 123); //NTP requests are to port 123
   Udp.write(packetBuffer, NTP_PACKET_SIZE);
   Udp.endPacket();
+}
+
+// normal arduino main function
+int main(void){
+  init();
+
+  setup();
+
+  for(;;){
+    loop();
+    if (serialEventRun) serialEventRun();
+  }
+  return 0;
 }

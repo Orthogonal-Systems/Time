@@ -130,10 +130,12 @@ uint16_t year();            // the full four digit year: (2009, 2010 etc)
 uint16_t year(time_t t);    // the year for the given time
 
 time_t now();              // return the current time as 64b timestamp since Jan 1 1970 
+time_t now( uint8_t allowSync ); // return the current time as 64b timestamp since Jan 1 1970, option to not allow updates during operation
 uint32_t nowSec();              // return the current time as 64b timestamp since Jan 1 1970 
 void   setTime(time_t t);
 void   setTime(uint8_t hr,uint8_t min,uint8_t sec,uint8_t day, uint8_t month, uint16_t yr);
 void   adjustTime(uint64_t adjustment);
+int32_t getDriftCorrection(); // return the fractional sec per second correction in use
 
 /* date strings */ 
 #define dt_MAX_STRING_LEN 9 // length of longest date string (excluding terminating null)
@@ -145,7 +147,7 @@ char* dayShortStr(uint8_t day);
 /* time sync functions	*/
 timeStatus_t timeStatus(); // indicates if time has been set and recently synchronized
 void    setSyncProvider( getExternalTime getTimeFunction); // identify the external time provider
-void    setSyncInterval(time_t interval); // set the number of seconds between re-sync
+void    setSyncInterval(uint32_t interval); // set the number of seconds between re-sync
 
 /* low level functions to convert to and from system time                     */
 void breakTime(time_t time, tmElements_t &tm);  // break time_t into elements
@@ -154,4 +156,3 @@ time_t makeTime(tmElements_t &tm);  // convert time elements into time_t
 } // extern "C++"
 #endif // __cplusplus
 #endif /* _Time_h */
-

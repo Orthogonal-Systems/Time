@@ -282,7 +282,7 @@ time_t now( uint8_t allowSync ) {
 		// millis() and prevMillis are both unsigned ints thus the subtraction will always be the absolute value of the difference
     sysSec++;
     prevMillis += 1000;	
-    adjustTime(driftCorrection);
+    adjustTime(((int64_t)driftCorrection) << 1); // need to double because of the precision of a int is 1 less than a uint
 #ifdef TIME_DRIFT_INFO
     sysUnsyncedSec++; // this can be compared to the synced time to measure long term drift     
 #endif

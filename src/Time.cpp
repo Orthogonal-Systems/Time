@@ -46,6 +46,8 @@ static uint32_t syncInterval = 300;  // time sync will be attempted after this m
 const uint8_t DRIFT_SMOOTHING_FACTOR = 180; // 180/256 = 0.7, finite response filter
 int32_t driftCorrection = 0;  // fract seconds per second of system time
 uint32_t lastSyncSec = 0;
+int32_t lastTimeError = 0;   // fractional sec per sec
+int32_t lastDriftError = 0;  // fractional sec per sec
 
 void refreshCache(time_t t) {
   if (t != cacheTime) {
@@ -309,11 +311,11 @@ time_t now( uint8_t allowSync ) {
         setTime(t);
         uint32_t t_sec = toSecs(t);
         if( lastSyncSec > 0 ){
-          int64_t time_error = t - unsyncedSysTime;
-          int32_t time_drift = (int32_t)(time_error/(t_sec - lastSyncSec)); // per second
+          lastTimeError = (int32_t)((t - unsyncedSysTime) >> 1);
+          lastDriftError = (int32_t)(lastTimeError/(t_sec - lastSyncSec)); // per second
           // drift correction has a finite response filter
-          driftCorrection = (int32_t)((DRIFT_SMOOTHING_FACTOR*(int64_t)driftCorrection)/UCHAR_MAX);
-          driftCorrection += (int32_t)(((UCHAR_MAX - DRIFT_SMOOTHING_FACTOR)*(int64_t)time_drift)/UCHAR_MAX);
+          driftCorrection = (int32_t)(((int64_t)DRIFT_SMOOTHING_FACTOR*(int64_t)driftCorrection)/256);
+          driftCorrection += (int32_t)((((int16_t)(256 - DRIFT_SMOOTHING_FACTOR))*(int64_t)lastDriftError)/256);
         }
         lastSyncSec = t_sec;
       } else {
@@ -378,4 +380,12 @@ void setSyncInterval(uint32_t interval){ // set the number of seconds between re
 
 int32_t getDriftCorrection(){
   return driftCorrection;
+}
+
+int32_t getDriftError(){
+  return lastDriftError;
+}
+
+int32_t getTimeError(){
+  return lastTimeError;
 }

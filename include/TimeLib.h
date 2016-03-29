@@ -136,6 +136,8 @@ void   setTime(time_t t);
 void   setTime(uint8_t hr,uint8_t min,uint8_t sec,uint8_t day, uint8_t month, uint16_t yr);
 void   adjustTime(uint64_t adjustment);
 int32_t getDriftCorrection(); // return the fractional sec per second correction in use
+int32_t getDriftError(); // return the fractional sec per second measured (after correction)
+int32_t getTimeError();   // return time error since last call in fractional seconds
 
 /* date strings */ 
 #define dt_MAX_STRING_LEN 9 // length of longest date string (excluding terminating null)

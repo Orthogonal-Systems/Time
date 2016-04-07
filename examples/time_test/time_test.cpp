@@ -68,6 +68,7 @@ void setup()
 
 uint32_t lastUpdate = 0;
 int32_t lastCorr = 0;
+uint8_t longerSyncPeriod = 0;
 
 void loop()
 {  
@@ -87,6 +88,10 @@ void loop()
         Serial.print("uC drift correction: ");
         Serial.println(corr);
         lastCorr = corr;
+        if( !longerSyncPeriod ){
+          setSyncInterval(1800); // set sync time to 1/2 hour after initial drift correction
+          longerSyncPeriod = 1;
+        }
       }
     }
   }

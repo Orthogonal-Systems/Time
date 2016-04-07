@@ -44,10 +44,12 @@ static uint32_t syncInterval = 300;  // time sync will be attempted after this m
 
 // drift correction per system clock second
 const uint8_t DRIFT_SMOOTHING_FACTOR = 180; // 180/256 = 0.7, finite response filter
-int32_t driftCorrection = 0;  // fract seconds per second of system time
+//const uint8_t DRIFT_SMOOTHING_FACTOR = 80; // 80/256 = 0.3, finite response filter
+int64_t driftCorrection = 0;  // fract seconds per second of system time
 uint32_t lastSyncSec = 0;
-int32_t lastTimeError = 0;   // fractional sec per sec
-int32_t lastDriftError = 0;  // fractional sec per sec
+uint8_t firstSync = 1;
+int64_t lastTimeError = 0;   // fractional sec per sec
+int64_t lastDriftError = 0;  // fractional sec per sec
 
 void refreshCache(time_t t) {
   if (t != cacheTime) {
@@ -284,7 +286,7 @@ time_t now( uint8_t allowSync ) {
 		// millis() and prevMillis are both unsigned ints thus the subtraction will always be the absolute value of the difference
     sysSec++;
     prevMillis += 1000;	
-    adjustTime(((int64_t)driftCorrection) << 1); // need to double because of the precision of a int is 1 less than a uint
+    adjustTime(driftCorrection);
 #ifdef TIME_DRIFT_INFO
     sysUnsyncedSec++; // this can be compared to the synced time to measure long term drift     
 #endif
@@ -311,11 +313,17 @@ time_t now( uint8_t allowSync ) {
         setTime(t);
         uint32_t t_sec = toSecs(t);
         if( lastSyncSec > 0 ){
-          lastTimeError = (int32_t)((t - unsyncedSysTime) >> 1);
-          lastDriftError = (int32_t)(lastTimeError/(t_sec - lastSyncSec)); // per second
+          lastTimeError = (int64_t)(t - unsyncedSysTime) ; // going to signed reduces precision
+          lastDriftError = (int64_t)(lastTimeError/(t_sec - lastSyncSec)); // per second
           // drift correction has a finite response filter
-          driftCorrection = (int32_t)(((int64_t)DRIFT_SMOOTHING_FACTOR*(int64_t)driftCorrection)/256);
-          driftCorrection += (int32_t)((((int16_t)(256 - DRIFT_SMOOTHING_FACTOR))*(int64_t)lastDriftError)/256);
+          //driftCorrection = (int32_t)(((int64_t)DRIFT_SMOOTHING_FACTOR*(int64_t)driftCorrection)/256);
+          if ( firstSync ){
+            // just go straight there
+            driftCorrection += lastDriftError;
+            firstSync = 0;
+          } else {
+            driftCorrection += (((int16_t)(256 - DRIFT_SMOOTHING_FACTOR))*lastDriftError)/256;
+          }
         }
         lastSyncSec = t_sec;
       } else {
@@ -379,13 +387,13 @@ void setSyncInterval(uint32_t interval){ // set the number of seconds between re
 }
 
 int32_t getDriftCorrection(){
-  return driftCorrection;
+  return (int32_t)(driftCorrection >> 1);
 }
 
 int32_t getDriftError(){
-  return lastDriftError;
+  return (int32_t)(lastDriftError >> 1);
 }
 
 int32_t getTimeError(){
-  return lastTimeError;
+  return (int32_t)(lastTimeError >> 1);
 }
